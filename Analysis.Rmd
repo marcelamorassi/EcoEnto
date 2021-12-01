@@ -1,0 +1,114 @@
+---
+title: "EcoEnto"
+author: "Marcela Morassi"
+date: "11/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+SetUp
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(vegan)
+library(RColorBrewer)
+theme_set(theme_classic()) # Set the theme
+
+
+setwd("C:/Users/Marcela Morassi/Documents/Github/EcoEnto")
+
+data <- read.csv("data.csv", na.strings=c("","NA"))
+
+```
+
+Data Manipulation
+```{r}
+###create data frames of counts
+#species
+species_count <- as.data.frame(table(data$species))
+species_count <- species_count %>% rename(species = Var1, count = Freq)
+#orders
+orders_count <- as.data.frame(table(data$order))
+orders_count <- orders_count %>% 
+  rename(order = Var1, count = Freq) %>% 
+   mutate(perc = count/sum(count)) %>% 
+  mutate(labels = scales::percent(perc)) %>% 
+  arrange(perc) %>%
+  mutate(count = as.character(count))
+#lepidoptera subset
+lepidoptera_data <- data %>% 
+  filter(order == "Lepidoptera")
+lepfam_count <- as.data.frame(table(lepidoptera_data$family))
+lepfam_count <- lepfam_count %>% 
+  rename(family = Var1, countz = Freq) %>% 
+  mutate(perc = countz/sum(countz)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+
+shannon_diversity = function(species, count) {
+  # species: vector of species names; 
+  # count: how many of each species are present
+  
+  # Create p, a vector of relative frequencies
+  p = tibble(species, count) %>% 
+    # Merge duplicate species 
+    group_by(species) %>% 
+    summarize(count = sum(count)) %>% 
+    ungroup() %>% 
+    # Remove zeroes
+    filter(count > 0) %>% 
+    # Convert to frequencies
+    mutate(p = count / sum(count)) %>% 
+    # Extract column p
+    pull(p) 
+  if(length(p) < 2) return(0) # one or 0 species has an H of 0
+  exp( -sum(p * log(p)) ) # exponential of shannon index
+}
+
+species_count %>% summarize(shannon = shannon_diversity(species, count)) %>% 
+  View()
+
+```
+
+Data Visualization
+```{r}
+#setting color palette
+nb.cols <- 15
+mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+
+ggplot(orders_count, aes(x="", y=perc, fill = order))+
+  geom_col()+
+  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y")+
+  theme_void()+
+  scale_fill_manual(values = mycolors)
+                                      
+```
+
+Diversity Index
+```{r}
+#filtering out years of interest
+data_comp <- data %>% 
+  filter(year == 1976|1986|1994|1998|2000|2020|2021)
+#formatting as species count by year
+data_comp <- as.data.frame(table(data_comp$year, data_comp$species))
+#not sure what this is doing, for Shannon's
+rownames(data_comp) <- data_comp[,1]
+data_comp <- data_comp[,-1]
+head(data_comp)
+
+#trying to do Shannon's diversity
+data_comp2 <- data_comp %>%
+  filter(Freq>0) %>% 
+  group_by(Var1) %>% 
+  diversity(index = "shannon") %>% 
+  view()
+plot(diversity(data_comp))
+```
+
