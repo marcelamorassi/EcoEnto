@@ -22,6 +22,7 @@ theme_set(theme_classic()) # Set the theme
 setwd("C:/Users/Marcela Morassi/Documents/Github/EcoEnto")
 
 data <- read.csv("data.csv", na.strings=c("","NA"))
+og_data <- read.csv("og_data.csv", na.strings=c("","NA"))
 
 ```
 
@@ -50,6 +51,97 @@ lepfam_count <- lepfam_count %>%
   mutate(labels = scales::percent(perc))
 
 
+#trying to do Shannon's diversity
+data_comp2 <- data_comp %>%
+  filter(Freq>0) %>% 
+  group_by(Var1) %>% 
+  diversity(index = "shannon") %>% 
+  view()
+plot(diversity(data_comp))
+```
+
+Moth data manipulation
+```{r}
+#filtering only order lep w og data
+moth_data_og <- og_data %>% 
+  filter(order == "Lepidoptera") %>% 
+  select(family, genus, species, eventDate, day, month, year, identifiedBy, recordedBy) %>% 
+  filter(!family %in% c("Nymphalidae","Papilionidae","Pieridae","Hesperiidae")) %>% 
+  filter(!is.na(recordedBy)) %>% 
+  mutate(year=as.numeric(year))
+#creating data frame of moth counts
+moth_count <- as.data.frame(table(moth_data_og$family))
+moth_fam_count_alt = moth_data_og %>% 
+  group_by(family, year) %>% # Group by what you want
+  summarise(count = n()) %>% 
+  group_by(year) %>% 
+  mutate(    perc = count / sum(count))# %>% 
+#count of moth obs per year
+moth_year_count = moth_data_og %>% 
+  group_by(year) %>% # Group by what you want
+  summarise(count = n()) %>% 
+  mutate(perc = count / sum(count)) %>% 
+  filter(!is.na(year))
+
+moth_count <- moth_count %>% 
+  rename(family = Var1, countz = Freq) %>% 
+  mutate(perc = countz/sum(countz)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+moth_count_alt
+
+```
+
+moth data visualization
+```{r}
+#bar chart of lep fam og data
+ggplot(moth_count, aes(x = "", y = perc, fill = family)) +
+  geom_bar(width = 1, stat = "identity", color = "white", position = "dodge")
+
+#bar charts of lep fam faceted
+ggplot(moth_count_alt, aes(x = "", y = perc, fill = family)) +
+  geom_bar(width = 1, stat = "identity", color = "white", position = "dodge")+
+  facet_wrap(facets = vars(year))
+
+#moth count by year
+ggplot(moth_year_count, aes(x = "", y = perc, fill = year)) +
+  geom_bar(width = 1, stat = "identity", color = "white", position = "dodge")
+
+ggplot(moth_year_count, aes(x = year, y = count, fill = year)) +
+  geom_bar(stat="identity",position = "dodge")
+
+###
+#shannon diversity avg for each season
+##jacaard index for each pairwise (spr-su,spri-fall, etc)
+#
+
+```
+
+moth shannon index
+```{r}
+#adding seasons column
+moth_data_og<- moth_data_og %>% 
+  mutate(season = case_when(
+    month %in% 9:11 ~ "fall",
+    month %in% c(1, 2, 12) ~ "winter",
+    month %in% 6:8 ~ "summer",
+    month %in% 3:5 ~ "spring"
+    ))
+
+#species count by season
+moth_count_season = moth_data_og %>% 
+  group_by(species, season, year) %>% # Group by what you want
+  summarise(count = n()) %>% 
+  filter(!is.na(season)) %>% 
+  filter(year>1990&year<2005)
+
+moth_count <- moth_data_og %>% 
+  filter(year>1990&year<2005) %>% 
+  group_by(species, season) %>% # Group by what you want
+  summarise(count = n()) %>% 
+  filter(!is.na(season)) 
+
+##Shannon's Diversity function
 shannon_diversity = function(species, count) {
   # species: vector of species names; 
   # count: how many of each species are present
@@ -70,45 +162,60 @@ shannon_diversity = function(species, count) {
   exp( -sum(p * log(p)) ) # exponential of shannon index
 }
 
-species_count %>% summarize(shannon = shannon_diversity(species, count)) %>% 
-  View()
+#shannon diversity data frame
+moth_shannon <- moth_count_season %>% 
+  group_by(season,year) %>% 
+  summarize(shannon = shannon_diversity(species, count),
+            richness = n()) 
+
+#plotting shannon diversity by season
+ggplot(moth_shannon, aes(x=season, y = shannon)) + 
+  geom_point() 
 
 ```
 
-Data Visualization
+Species Accumulation Curves
 ```{r}
-#setting color palette
-nb.cols <- 15
-mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+# Widen the data
+moth_season_wide = mouth_count %>% 
+  pivot_wider(names_from = species, values_from = count, values_fill = 0)
 
-ggplot(orders_count, aes(x="", y=perc, fill = order))+
-  geom_col()+
-  geom_text(aes(label = labels),
-            position = position_stack(vjust = 0.5)) +
-  coord_polar(theta = "y")+
-  theme_void()+
-  scale_fill_manual(values = mycolors)
-                                      
+
+
 ```
 
-Diversity Index
-```{r}
-#filtering out years of interest
-data_comp <- data %>% 
-  filter(year == 1976|1986|1994|1998|2000|2020|2021)
-#formatting as species count by year
-data_comp <- as.data.frame(table(data_comp$year, data_comp$species))
-#not sure what this is doing, for Shannon's
-rownames(data_comp) <- data_comp[,1]
-data_comp <- data_comp[,-1]
-head(data_comp)
 
-#trying to do Shannon's diversity
-data_comp2 <- data_comp %>%
-  filter(Freq>0) %>% 
-  group_by(Var1) %>% 
-  diversity(index = "shannon") %>% 
-  view()
-plot(diversity(data_comp))
+
+
+Abundance analysis
+```{r}
+#creating table of species count
+table_data <- moth_data_og %>% 
+  filter(year>1990&year<2005) %>%  
+  group_by(season, year, species) %>% 
+  dplyr::count(species) %>% 
+  group_by(season,species) %>% 
+  mutate(countSpe=sum(n)) %>% 
+  group_by(season, year) %>% 
+  arrange(desc(countSpe),.by_group=TRUE)
+
+table_spring <- table_data %>% 
+  select(-c(countSpe)) %>% 
+  filter(grepl('spring',season,year)) %>% 
+  pivot_wider(names_from=species,values_from=n) %>% 
+  ungroup() %>% 
+  select(c(2:7))
+
+table_spring1 <- table_data %>% 
+  select(-c(countSpe)) %>% 
+  filter(grepl('spring',season,year)) %>%  
+  ungroup() %>% 
+  uncount(weights=n) %>% 
+  select(species, year) %>% 
+  table()
+
+chisq.test(table_spring1)
+
+
 ```
 
